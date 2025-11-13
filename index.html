@@ -1,158 +1,49 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>修仙·模型驱动</title>
-<style>
-:root{--gold:#ffd700;--danger:#ff6b6b;--safe:#4ecdc4;--bg:#1a1a1a;--panel:#2a2a2a;--border:#444;font-family:"Noto Sans SC",system-ui;}
-*{box-sizing:border-box;margin:0;padding:0;color:#e0e0e0;}
-body{background:var(--bg);display:flex;justify-content:center;min-height:100vh;padding:10px;}
-.screen{position:fixed;inset:0;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;z-index:10;}
-.start-box,.end-box{background:var(--panel);border:2px solid var(--gold);border-radius:10px;padding:30px 50px;text-align:center;}
-.big-btn{background:var(--gold);color:var(--bg);border:none;padding:12px 30px;font-size:18px;font-weight:700;border-radius:6px;cursor:pointer;}
-.big-btn:hover{background:#ffed4e;}
-#game{display:flex;width:100%;max-width:1200px;gap:10px;height:calc(100vh - 20px);}
-.left{flex:1;display:flex;flex-direction:column;gap:10px;}
-.right{width:340px;display:flex;flex-direction:column;gap:10px;}
-.card{background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:10px;display:flex;flex-direction:column;gap:6px;}
-.card-title{color:var(--gold);font-weight:700;margin-bottom:4px;}
-#story{flex:1;white-space:pre-wrap;line-height:1.7;}
-#choices{gap:8px;display:flex;flex-direction:column;}
-.choice{background:#3a3a3a;border:1px solid var(--border);padding:10px;border-radius:4px;cursor:pointer;transition:.2s;}
-.choice:hover{border-color:var(--gold);transform:translateX(3px);}
-.choice.locked{opacity:.5;cursor:not-allowed;}
-.item-use{background:#555;border:1px solid var(--gold);padding:4px 6px;border-radius:3px;font-size:12px;cursor:pointer;margin-left:6px;}
-.item-use:hover{background:var(--gold);color:var(--bg);}
-@media(max-width:800px){
-  #game{flex-direction:column;}
-  .right{width:100%;flex-direction:row;flex-wrap:wrap;}
-  .right .card{min-width:calc(50% - 5px);}
-}
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>修仙·熵变系统</title>
+    <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-<div id="startScreen" class="screen">
-  <div class="start-box">
-    <h2>修仙·模型驱动</h2>
-    <button class="big-btn" onclick="startGame()">开始游戏</button>
-  </div>
-</div>
-<div id="endScreen" class="screen" style="display:none;">
-  <div class="end-box">
-    <h2>游戏结束</h2>
-    <p id="endReason"></p>
-    <button class="big-btn" onclick="location.reload()">重新开始</button>
-  </div>
-</div>
-<div id="game" style="display:none;">
-  <div class="left card">
-    <div class="card-title" id="eventTitle">欢迎来到修仙世界</div>
-    <div id="story"></div>
-    <div id="choices"></div>
-  </div>
-  <div class="right">
-    <div class="card" id="roleCard"></div>
-    <div class="card" id="entropyCard"></div>
-    <div class="card" id="bagCard"></div>
-    <div class="card" id="logCard"></div>
-  </div>
-</div>
-<script>
-// ========== 数学工具 ==========
-const rand=(l,r)=>Math.floor(Math.random()*(r-l+1))+l;
-const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
-const log=(txt,cls='')=>{const l=document.getElementById('log');l.insertAdjacentHTML('beforeend',`<span class="${cls}">${txt}</span>`);l.scrollTop=l.scrollHeight;};
-const ui=(id,val)=>document.getElementById(id).textContent=val;
-const bar=(id,p)=>document.getElementById(id).style.width=(p*100).toFixed(1)+'%';
+    <!-- 开始界面 -->
+    <div id="startScreen" class="screen">
+        <div class="start-box">
+            <h2>修仙·熵变系统</h2>
+            <p>探索修仙世界，掌控天地熵变</p>
+            <button class="big-btn" onclick="Main.startGame()">开始游戏</button>
+        </div>
+    </div>
 
-// ========== 配置表（模型） ==========
-const CONFIG={
-  realm:['凡人','炼气','筑基','金丹','元婴','化神','炼虚','合体','大乘','渡劫','飞升'],
-  expCurve:l=>Math.floor(100*Math.pow(1.55,l)),
-  beastAtk:t=>10*Math.pow(1.5,t),beastDef:t=>5*Math.pow(1.4,t),beastExp:t=>10*t*t,
-  time:{start:{y:1,s:0,d:0,h:6},seasons:['春','夏','秋','冬'],hourName:['清晨','上午','正午','下午','傍晚','夜晚','深夜']},
-  entropy:{keys:['spirit','morality','order','life'],names:['灵脉','正邪','秩序','生机'],max:100,min:-100,critical:60},
-  pillPower:{疗伤:{hp:0.3},突破:{exp:0.2},解毒:{},淬体:{maxHp:0.1},负面:{hp:-0.2,exp:-0.1}},
-  mainLines:[
-    {id:'spirit',name:'灵脉沸腾',enter:60,exit:100,lock:90},
-    {id:'morality',name:'正邪对立',enter:60,exit:100,lock:90},
-    {id:'order',name:'秩序崩坏',enter:60,exit:100,lock:90},
-    {id:'life',name:'生机复苏',enter:60,exit:100,lock:90},
-    {id:'chaos',name:'混沌终局',enter:80,exit:100,lock:100},
-    {id:'doom',name:'死寂终焉',enter:-80,exit:-100,lock:-100}
-  ],
-  tags:{  // 后台自动打标签
-    neutralEvil:(s)=>s.entropy.morality<=-30&&s.entropy.order>=0,
-    chaos:(s)=>s.entropy.order<=-60,
-    saint:(s)=>s.entropy.morality>=60&&s.entropy.life>=60
-  }
-};
+    <!-- 结束界面 -->
+    <div id="endScreen" class="screen" style="display:none;">
+        <div class="end-box">
+            <h2>游戏结束</h2>
+            <p id="endReason"></p>
+            <button class="big-btn" onclick="location.reload()">重新开始</button>
+        </div>
+    </div>
 
-// ========== 全局状态 ==========
-const State={
-  hp:100,maxHp:100,mp:50,maxMp:50,exp:0,lv:0,atk:10,def:5,wux:10,qiy:50,
-  root:'五行杂灵根',sect:'散修',bag:[],cd:0,
-  time:{...CONFIG.time.start},entropy:{spirit:0,morality:0,order:0,life:0},
-  tags:new Set(),flags:{},mainLock:new Set()
-};
+    <!-- 游戏主界面 -->
+    <div id="game" style="display:none;">
+        <div class="left card">
+            <div class="card-title" id="eventTitle">欢迎来到修仙世界</div>
+            <div id="story"></div>
+            <div id="choices"></div>
+        </div>
+        <div class="right">
+            <div class="card" id="roleCard"></div>
+            <div class="card" id="entropyCard"></div>
+            <div class="card" id="bagCard"></div>
+            <div class="card" id="logCard"></div>
+        </div>
+    </div>
 
-// ========== 时间模型 ==========
-function addTime(h=1){
-  State.time.h+=h;if(State.time.h>=24){State.time.h-=24;State.time.d++;}
-  if(State.time.d>=90){State.time.d-=90;State.time.s++;if(State.time.s>=4){State.time.s-=4;State.time.y++;}
-  const sn=CONFIG.time.seasons[State.time.s],hn=CONFIG.time.hourName[Math.floor(State.time.h/4)];
-  ui('worldTime',`第${State.time.y}年·${sn}·${hn}`);
-}
-
-// ========== 修为模型 ==========
-function gainExp(n){
-  State.exp+=n;log(`修为 +${n}`,'special');
-  const need=CONFIG.expCurve(State.lv);
-  if(State.exp>=need){State.exp-=need;State.lv++;
-    log(`突破至 ${CONFIG.realm[State.lv]}!`,'special');
-    State.maxHp+=30;State.hp=State.maxHp;State.maxMp+=20;State.mp=State.maxMp;
-    State.atk+=5;State.def+=3;State.wux+=2;
-    if(State.lv>=10)return ending('飞升成功，游戏通关！');
-  }
-}
-
-// ========== 熵变模型 ==========
-function changeEntropy(key,delta){
-  State.entropy[key]=clamp(State.entropy[key]+delta,CONFIG.entropy.min,CONFIG.entropy.max);
-  ui(key,State.entropy[key]);
-  if(Math.abs(State.entropy[key])>=CONFIG.entropy.critical)log(`${CONFIG.entropy.names[CONFIG.entropy.keys.indexOf(key)]}维度发生质变！`,'special');
-}
-
-// ========== 标签模型（自动） ==========
-function updateTags(){
-  State.tags.clear();
-  for(const [tag,fn] of Object.entries(CONFIG.tags))if(fn(State))State.tags.add(tag);
-}
-
-// ========== 背包使用 ==========
-function renderBag(){
-  const b=document.getElementById('bag');
-  if(!State.bag.length){b.textContent='空';return;}
-  b.innerHTML='';
-  State.bag.forEach((it,idx)=>{
-    const span=document.createElement('span');span.textContent=it+' ';
-    const use=document.createElement('span');use.className='item-use';use.textContent='使用';
-    use.onclick=()=>useItem(it,idx);span.appendChild(use);b.appendChild(span);
-  });
-}
-function useItem(it,idx){
-  const power=CONFIG.pillPower[it];
-  if(!power){log('该物品无法直接使用','danger');return;}
-  if(it==='疗伤'){State.hp=Math.min(State.maxHp,State.hp+State.maxHp*power.hp);log('伤势恢复','safe');}
-  if(it==='突破'){gainExp(Math.floor(CONFIG.expCurve(State.lv)*power.exp));}
-  if(it==='淬体'){State.maxHp+=Math.floor(State.maxHp*power.maxHp);State.hp=State.maxHp;log('体魄增强','safe');}
-  State.bag.splice(idx,1);renderBag();update();
-}
-
-// ========== 事件过滤模型 ==========
-function filterEvents(pool,tag){
-  if(!tag)return pool;
-  return pool.filter(e=>!e.reqTag||e.reqTag===tag||e.reqTag.includes(tag));
-}
-function prob
+    <!-- 核心脚本 -->
+    <script type="module">
+        import { Main } from './js/main.js';
+        window.Main = Main; // 暴露全局供按钮调用
+    </script>
+</body>
+</html>
